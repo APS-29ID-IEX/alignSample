@@ -10,6 +10,7 @@ from bluesky.plans import adaptive_scan
 from bluesky.callbacks import LiveFit, LivePlot, LiveFitPlot, LiveTable
 from bluesky import RunEngine
 from ophyd.signal import EpicsSignalRO, EpicsSignal
+from ophyd.epics_motor import EpicsMotor
 
 #Need for testing/troubleshooting
 from ophyd.sim import SynAxis, SynGauss, SynSignal
@@ -95,10 +96,10 @@ def align_x(theta_offset = 0,
 	
 	if not SimAlign:
 		#set signals
-		x_motor = EpicsSignal('29idd:m1', name = 'x_motor')
-		theta_motor = EpicsSignal('29idd:m7', name = 'theta_motor')
-		two_theta_motor = EpicsSignal('PV_name', name = 'two_theta_motor')
-		det_tran =  EpicsSignalRO('29idd:ca4', name = 'name')
+		x_motor = EpicsMotor('29idd:m1', name = 'x_motor')
+		theta_motor = EpicsMotor('29idd:m7', name = 'theta_motor')
+		two_theta_motor = EpicsMotor('29idHydra:m1', name = 'two_theta_motor')
+		det_tran =  EpicsSignalRO('29idd:ca4:read', name = 'name')
 	else:
 		#set simulated signals
 		x_motor = SynAxis(name='x_motor')
@@ -115,11 +116,12 @@ def align_x(theta_offset = 0,
 						init_guess, update_every=5)
 	fig, ax = plt.subplots()  # explitly create figure, axes to use below
 	trans_lfp = LiveFitPlot(trans_lf, ax=ax, color='r', label = 'fit')
-	trans_lp = LivePlot('det_tran','x_motor', ax=ax, marker='o', 
+	trans_lp = LivePlot(det_tran,x_motor, ax=ax, marker='o', 
 						linestyle='none', label = 'data')
+#	trans_lt = LiveTable([x_motor, det_tran])
 
 	#Start BlueSky run engine
-	RE = RunEngine({})
+	RE = RunEngine()
 
 	#Move motors 
 	if not SimAlign:
@@ -130,18 +132,19 @@ def align_x(theta_offset = 0,
 		pass
 		
 	#run adaptive scan
-	RE(adaptive_scan([det_tran], 'det_tran', x_motor, 
+	RE(adaptive_scan([det_tran], 'det_tran', x_motor,
 					start = alignRange[0],
 					stop = alignRange[1], 
 					min_step = stepRange[0],  
 					max_step = stepRange[1], 
 					target_delta = targetDelta,
-					backstep = True), [trans_lp, trans_lfp])
+					backstep = True), [trans_lp, trans_lfp])#, trans_lt]), trans_lfp])
 
 	print('Half-maximum at x0 = ',"{0:.5f}".format(trans_lf.result.params['x0'].value))
 	print('Number of measurements: ',len(trans_lp.x_data))	
-	
-	return trans_lf.result.params['x0'].value
+
+	return
+#	return trans_lf.result.params['x0'].value
 	
 	
 def align_theta(x0 = 0,
@@ -159,10 +162,10 @@ def align_theta(x0 = 0,
 	
 	if not SimAlign:
 		#set signals
-		x_motor = EpicsSignal('29idd:m1', name = 'x_motor')
-		theta_motor = EpicsSignal('29idd:m7', name = 'theta_motor')
-		two_theta_motor = EpicsSignal('PV_name', name = 'two_theta_motor')
-		det_rot =  EpicsSignalRO('29idd:ca4', name = 'name')
+		x_motor = EpicsMotor('29idd:m1', name = 'x_motor')
+		theta_motor = EpicsMotor('29idd:m7', name = 'theta_motor')
+		two_theta_motor = EpicsMotor('29idHydra:m1', name = 'two_theta_motor')
+		det_rot =  EpicsSignalRO('29idd:ca4:read', name = 'name')
 
 	else:
 		#set simulated signals
@@ -210,73 +213,80 @@ def align_theta(x0 = 0,
 	
 	return rot_lf.result.params['x0'].value
 	
-def align_sample(iterations = 3,
-				alignCriteria = None,
-				xAlignRange = [-1.00,1.00], 
-				xStepRange = [0.05, 0.5],
-				xTargetDelta = 0.0025,
-				thetaAlignRange = [3.50,6.50], 
-				thetaStepRange = [0.01, 0.4],
-				thetaTargetDelta = 0.25, 
-				SimAlign = False,
-				plotReport = True,
-				tableReport = True):
-	"""
-	align_sample:
-		-loops over align_x and align_theta until criteria met or fixed number 
-		 of iterations met
-		-other..?	
-	"""
+#def align_sample(iterations = 3,
+				#alignCriteria = None,
+				#xAlignRange = [-1.00,1.00], 
+				#xStepRange = [0.05, 0.5],
+				#xTargetDelta = 0.0025,
+				#thetaAlignRange = [3.50,6.50], 
+				#thetaStepRange = [0.01, 0.4],
+				#thetaTargetDelta = 0.25, 
+				#SimAlign = False,
+				#plotReport = True,
+				#tableReport = True):
+	#"""
+	#align_sample:
+		#-loops over align_x and align_theta until criteria met or fixed number 
+		 #of iterations met
+		#-other..?	
+	#"""
 				
-	iter_count = 0	
-	notAligned = True
-	sequence = []
+	#iter_count = 0	
+	#notAligned = True
+	#sequence = []
 	
-	x0 = [0]	
-	theta0 = [0]
+	#x0 = [0]	
+	#theta0 = [0]
 	
-	if plotReport:
-		fix, cx1 = plt.subplots()
-		cx2 = cx1.twinx()
+	#setup x_align plots
+	
+	#setup theta_align plots
+	
+	#if plotReport:
+		#fix, cx1 = plt.subplots()
+		#cx2 = cx1.twinx()
 					
-	while notAligned:
-		x0.append(align_x(theta_offset = theta0[-1]))
-		theta0.append(align_theta(x0 = x0[-1]))
+	#while notAligned:
+		#add axis/figure to arguments  (and to module)
+		#x0.append(align_x(theta_offset = theta0[-1]))
 		
-		iter_count += 1
-		sequence.append(iter_count)
+		#add axis/figure to arguments (and to module)
+		#theta0.append(align_theta(x0 = x0[-1]))
+		
+		#iter_count += 1
+		#sequence.append(iter_count)
 			
-		if plotReport:
-			if iter_count == 1:
-				cx1.plot(sequence, x0, color = 'r', marker = 'o', 
-						linestyle='none', label = 'x_offset'))
-				cx2.plot(sequence, theta0, color = 'b', marker = 'x', 
-						linestyle='none', label = 'theta_offset'))
-				color_y_axis(cx1, 'r')
-				color_y_axis(cx2, 'b')
-				plt.show()
-			else:
-				cx1.plot(sequence, x0, color = 'r', marker = 'o', 
-						linestyle='none', label = 'x_offset'))
-				cx2.plot(sequence, theta0, color = 'b', marker = 'x', 
-						linestyle='none', label = 'theta_offset'))
-				color_y_axis(cx1, 'r')
-				color_y_axis(cx2, 'b')
-#				plt.show()
-		if tableReport:
-			pass
+		#if plotReport:
+			#if iter_count == 1:
+				#cx1.plot(sequence, x0, color = 'r', marker = 'o', 
+						#linestyle='none', label = 'x_offset')
+				#cx2.plot(sequence, theta0, color = 'b', marker = 'x', 
+						#linestyle='none', label = 'theta_offset')
+				#color_y_axis(cx1, 'r')
+				#color_y_axis(cx2, 'b')
+				#plt.show()
+			#else:
+				#cx1.plot(sequence, x0, color = 'r', marker = 'o', 
+						#linestyle='none', label = 'x_offset')
+				#cx2.plot(sequence, theta0, color = 'b', marker = 'x', 
+						#linestyle='none', label = 'theta_offset')
+				#color_y_axis(cx1, 'r')
+				#color_y_axis(cx2, 'b')
+##				plt.show()
+		#if tableReport:
+			#pass
 
-		if alignCriteria not None:
-			# print delta_x (and criteria)
-			# print delta_theta (and criteria)
-			if (delta_x < alignCriteria.x AND delta_theta < alignCritera.theta):
-				notAligned = False
-		else:	
-			# print iters
-			# print delta_x
-			# print delta_theta
-			if iter_count >= iterations:
-				notAligned = False
+		#if alignCriteria is not None:
+			## print delta_x (and criteria)
+			## print delta_theta (and criteria)
+			#if (delta_x < alignCriteria.x AND delta_theta < alignCritera.theta):
+				#notAligned = False
+		#else:	
+			## print iters
+			## print delta_x
+			## print delta_theta
+			#if iter_count >= iterations:
+				#notAligned = False
 				
 						   
 						   
