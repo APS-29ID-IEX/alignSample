@@ -366,6 +366,15 @@ def align_theta(x0 = 0,
 		detTh = SynGauss('detTh',thMotor, 'thMotor', 
 						   center=simCenter, Imax=1, sigma=.03, 
 						   noise='uniform', noise_multiplier=0.05)
+
+	#Move motors 
+	if not SimAlign:
+		#move xMotor to x0
+		
+		xMotor.move(x0)
+		#move tthMotor to 10 degrees
+		tthMotor.move(10.0)
+	
 	
 	#set up plot
 	if ax is None:
@@ -400,14 +409,6 @@ def align_theta(x0 = 0,
 	rot_lfp = LiveFitPlot(rot_lf, ax=ax, color='r', label='fit')
 
 	rot_lp = LivePlot('detTh',x='thMotor', ax=ax, marker='o', linestyle='none', label='fine data')
-
-	#Move motors 
-	if not SimAlign:
-		#move xMotor to x0
-		xMotor.move(x0)
-		#move tthMotor to 10 degrees
-		tthMotor.move(10.0)
-		pass
 		
 	#run adaptive scan
 	RE(adaptive_scan([detTh], 'detTh',thMotor, 
