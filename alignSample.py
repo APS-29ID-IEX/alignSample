@@ -275,6 +275,9 @@ def align_x(iterations,
 					init_kws={'visible':False},
 					xlabel = 'xMotor', ylabel = 'detX')
 	ax.set_title(' ')
+
+	legend = ax.legend()
+	legend.remove()
 			
 	if verbose:
 		print('-------------------------------')
@@ -416,6 +419,9 @@ def align_theta(iterations,
 					max_step = stepRange[1], 
 					target_delta = targetDelta,
 					backstep = False), [rot_lp, rot_lfp])
+
+	legend = ax.legend()
+	legend.remove()
 
 	if verbose:
 		print('-------------------------------')
