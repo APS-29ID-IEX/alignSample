@@ -1,3 +1,10 @@
+"""
+python modules for aligning samples at APS's 29ID RSXS system
+
+author: Max Wyman <mwyman@anl.gov
+
+"""
+
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import matplotlib.patches as mpatches
