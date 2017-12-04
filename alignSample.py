@@ -26,7 +26,15 @@ import math
 
 # Change color of each axis
 def color_y_axis(ax, color):
-    """Color your axes."""
+    """
+    Colors the passed axis.
+
+	Parameters
+	----------
+	ax		:	axes object whose color is to be changed
+	color	:	new color of axes object
+
+    """
     for t in ax.get_yticklabels():
         t.set_color(color)
     return None
@@ -164,10 +172,10 @@ def align_legend(iteration, ax, other = None):
 	iteration	: integer, iteration of alignment loop
 	ax			: axis object whose legend is being repaced
 	other		: list of dicts for other items in legend containing
-					label	:
-					shape	:
-					color	: 
-					size	:
+					label	:	label to use in legend
+					shape	:	shape to use in legend entry
+					color	:   color of legend entry
+					size	:   size of legend entry symbol
 					 
 	"""
 	
