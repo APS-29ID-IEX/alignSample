@@ -10,36 +10,36 @@ alignSample.py contains subroutines to use the BlueSky interface for the alignme
 #### Translational alignment
 Move x-stage while taking measurements from detector. As the sample/sample holder pass through beam, detector signal should go to zero.  If it goes further, the beam will pass "under" the sample holder and signal could be observed again. 
 
-'''
+```
 align_x(iterations, theta_offset = 0, alignRange = [-1.00,2.00], stepRange = [0.0015, 0.1], targetDelta = 0.0025, SimAlign = False, ax = None, bump = False, fudge = 0.75, verbose = False)
-'''
+```
 
 #### Rotational alignment
 Rotate theta state about 5 degrees to maximize signal at detector positioned a 10 degrees. The minimum theta motor step is 0.01 degrees.
 
-'''
+```
 align_theta(iterations, x0 = 0, alignRange = [4.0,6.0], coarseStep = 0.1, fineRadius = 0.2, 	stepRange = [0.015, 0.1], targetDelta = 0.1, SimAlign = False, ax = None, verbose = False):
-'''
+```
 
 #### Sample Alignment
 Iterates between x- and theta-alignment to improve sample position
 
-'''
+```
 align_sample(iterations = 3, alignCriteria = None, theta_kws = None, x_kws = None, SimAlign = False, plotReport = True)
-'''
+```
 
 #### Testing
 Both translational and rotational alignment tools have a testing mode (SimAlign):
 
-'''
+```
 align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':True,'fudge':0.75}, iterations
-'''
+```
     
 ### Classes
 
 #### SynErf
 
-'''
+```
     Evaluate a point on the error function based on the value of a motor.
 
     Parameters
@@ -58,11 +58,11 @@ align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':Tru
     noise_multiplier : float
         Only relevant for 'uniform' noise. Multiply the random amount of
         noise by 'noise_multiplier'
-'''
+```
 
 #### SynErfGauss
 
-'''
+```
     Evaluate a point on the error function based on the value of a motor
     that also includes a small gaussian bump corresponding to the beam passing 
     under the sample holder which occurs for high x (>1 mm after sample/holder
@@ -84,13 +84,13 @@ align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':Tru
     noise_multiplier : float
         Only relevant for 'uniform' noise. Multiply the random amount of
         noise by 'noise_multiplier'
-'''
+```
 
 ### Functions
 
 #### align_legend
 
-'''
+```
     Replaces messy legends produced by lmfit
 
     Parameters
@@ -102,11 +102,11 @@ align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':Tru
 			shape	:   shape to use in legend entry
 			color	:   color of legend entry
 			size	:   size of legend entry symbol
-'''
+```
 					 
 #### align_sample
 
-'''
+```
 	Loops over align_x and align_theta until criteria met or fixed number 
 	 of iterations met
 		
@@ -124,11 +124,11 @@ align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':Tru
 					  only for individual x, theta loops via the keyword args)
 	plotReport 		: boolean for plotting summary results 
 					  Default value is True,
-'''
+```
 
 #### align_theta
 
-''' 
+``` 
 	sets tthMotor to 10 degrees
 	set xMotor to x0 (half-max)
 	scanthMotor through range
@@ -157,12 +157,12 @@ align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':Tru
 					  Default value is None,
 	verbose 		: boolean for showing alignment process
 					  Default value is False):
-'''
+```
 
 #### align_x
 
 
-'''
+```
 	set tthMotor to 0 degrees
 	setthMotor to 0 degrees
 	scan xMotor through range
@@ -191,22 +191,22 @@ align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':Tru
 					  Default value is 0.75.
 	verbose 		: boolean, 
 					  Default value is False
-'''
+```
 
 #### color_y_axis
 
-'''
+```
 	Colors the passed axis.
 
 	Parameters
 	----------
 	ax		:	axes object whose color is to be changed
 	color	:	new color of axes object
-'''
+```
 
 #### erfx
 
-'''
+```
 	Create error function for fitting and simulation
 	
 	Parameters
@@ -216,11 +216,11 @@ align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':Tru
 	high		: 	max value of error function
 	sigma		:	"spread" of error function transition region
 	x0		:	location of error function's "center"
-'''
+```
 
 #### gaussian
 
-'''
+```
 	Create gaussian for fitting and simulation
 	
 	Parameters
@@ -229,7 +229,7 @@ align_sample(theta_kws = {'SimAlign':True}, x_kws = {'SimAlign':True, 'bump':Tru
 	A		: 	peak of gaussian
 	sigma	:	"spread" of gaussian
 	x0		:	location of peak of gaussian
-'''
+```
 
 ## Sample Alignment stuff.ipynb
 
