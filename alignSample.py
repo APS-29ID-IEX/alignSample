@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
 plt.ion()
 
 # Make plots live-update while scans run.
@@ -30,12 +32,34 @@ def color_y_axis(ax, color):
     return None
 
 fit_colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
+linestyles = ['-', '--', '-.', ':']
 
 def gaussian(x, A, sigma, x0):
-    return A*np.exp(-(x - x0)**2/(2 * sigma**2))
+	"""
+	Create gaussian for fitting and simulation
+	
+	Parameters
+	----------
+	x		:	input upon which gaussian is evaluated
+	A		: 	peak of gaussian
+	sigma	:	"spread" of gaussian
+	x0		:	location of peak of gaussian
+	"""
+	return A*np.exp(-(x - x0)**2/(2 * sigma**2))
     
 def erfx(x, low, high, wid, x0):
-    return (high - low) * 0.5 * (1-scipy.special.erf((x-x0)/wid)) + low    
+	"""
+	Create error function for fitting and simulation
+	
+	Parameters
+	----------
+	x		:	input upon which error function is evaluated
+	low		: 	min value of error function
+	high	: 	max value of error function
+	sigma	:	"spread" of error function transition region
+	x0		:	location of error function's "center"
+	"""
+	return (high - low) * 0.5 * (1-scipy.special.erf((x-x0)/wid)) + low    
 
 #SynErf class required to simulate translational/x-alignment
 class SynErf(SynSignal):
@@ -122,7 +146,7 @@ class SynErfGauss(SynSignal):
         def func():
             m = motor.read()[motor_field]['value']
             v = erfx(m, 0, Imax, wid, x0)
-            v += gaussian(m, Imax*0.20, 0.1, x0 + 0.75 + 0.25*np.random.random())
+            v += gaussian(m, Imax*0.20, 0.1, x0 + 1 - wid/2.0 + 0.25*np.random.random())
             if noise == 'poisson':
                 v = int(np.random.poisson(np.round(v), 1))
             elif noise == 'uniform':
@@ -130,6 +154,44 @@ class SynErfGauss(SynSignal):
             return v
 
         super().__init__(func=func, name=name, **kwargs)
+
+def align_legend(iteration, ax, other = None):
+	"""
+	Replaces messy legends produced by lmfit
+	
+	Parameters
+	----------
+	iteration	: integer, iteration of alignment loop
+	ax			: axis object whose legend is being repaced
+	other		: list of dicts for other items in legend containing
+					label	:
+					shape	:
+					color	: 
+					size	:
+					 
+	"""
+	
+	leg = ax.legend()
+	leg.remove()
+	
+	iterHandles = []
+	for i in range(iteration):
+		iterHandles.append(mpatches.Patch(color = fit_colors[i+1 % 7], 
+									label = 'Iteration {} - Fit'.format(i+1)))
+		
+	if other is not None:
+		for j in other:
+			legline = mlines.Line2D([], [], markeredgecolor=j['color'],
+							markerfacecolor = 'none',
+							marker=j['shape'], markersize=j['size'], 
+							label=j['label'], linestyle = 'none')
+			iterHandles.append(legline)
+			
+	ax.legend(handles=iterHandles, loc = 0)
+
+
+
+	return
 
 def align_x(iterations,
 			theta_offset = 0,
@@ -139,7 +201,7 @@ def align_x(iterations,
 			SimAlign = False,
 			ax = None,
 			bump = False,
-			fudge = 0.5,
+			fudge = 0.75,
 			verbose = False):
 	"""
 	align_x:  
@@ -150,6 +212,8 @@ def align_x(iterations,
 
 	Parameters
     ----------
+	iterations		: overal iteration of full alignment loop, required for 
+					  plot colors/legend
     theta_offset	: float,  
 					  Default value is 0 in degrees.
 	alignRange 		: list of two floats, 
@@ -161,12 +225,12 @@ def align_x(iterations,
 					  Default value is 0.0025.
 	SimAlign 		: boolean, 
 					  Default value is False.
-	ax 				: axis object, 
+	ax 				: axis object for plotting x-alignment data, 
 					  Default value is None.
 	bump 			: boolean, 
 					  Default value is False.
-	fudge 			: float, 
-					  Default value is 0.5.
+	fudge 			: float, rough estimate of sample/sample plate thickness in mm
+					  Default value is 0.75.
 	verbose 		: boolean, 
 					  Default value is False
 
@@ -217,8 +281,9 @@ def align_x(iterations,
 
 #	comp_lfp = LiveFitPlot(comp_lf, ax=ax, color='g', label = 'composite fit')
 
-	trans_lp = LivePlot('detX',x='xMotor', ax=ax, marker='s',
-						linestyle='none', label = 'data',
+	trans_lp = LivePlot('detX',x='xMotor', ax=ax, marker='^',
+						linestyle='none', 
+						label = 'Iteration {}'.format(iterations),
 						markerfacecolor = 'none', 
 						markeredgecolor = fit_colors[iterations % 7])
 
@@ -246,7 +311,7 @@ def align_x(iterations,
 	compFit_x0 = comp_lf.result.params['erf_x0'].value
 	compFit_width = comp_lf.result.params['erf_wid'].value
 	
-	x_reduced_max = compFit_x0 + (1.0+fudge)*compFit_width
+	x_reduced_max = compFit_x0 + fudge - 0.5*compFit_width
 	
 	xdata = np.asarray(trans_lp.x_data)
 	ydata = np.asarray(trans_lp.y_data)
@@ -271,14 +336,22 @@ def align_x(iterations,
 
 	#plot new fit
 	redFit.plot_fit(ax = ax, data_kws = {'visible':False}, 
-					fit_kws={'color': fit_colors[iterations % 7]},
+					fit_kws={'color': fit_colors[iterations % 7], 
+					'linestyle' : linestyles[iterations // 7]},
 					init_kws={'visible':False},
 					xlabel = 'xMotor', ylabel = 'detX')
 	ax.set_title(' ')
 
-	legend = ax.legend()
-	legend.remove()
-			
+	other_data = []
+	leg_raw	= {'label'	: 'Data',
+			   'shape'	: '^',
+			   'color'	: 'k',
+			   'size'	: '10'}
+			   
+	other_data = [leg_raw]
+
+	align_legend(iterations, ax, other_data)
+
 	if verbose:
 		print('-------------------------------')
 		print('Number of measurements: ',len(trans_lp.x_data))	
@@ -320,6 +393,8 @@ def align_theta(iterations,
 
 	Parameters
     ----------
+	iterations		: overal iteration of full alignment loop, required for 
+					  plot colors/legend
     x0 				: float,  
 					  Default value is 0 in mm,
 	alignRange		: list of two floats, 
@@ -335,9 +410,9 @@ def align_theta(iterations,
 					  Default value is 0.1 in detector units, 
 	SimAlign  		: boolean, 
 					  Default value is False,
-	ax  			: plot object, 
+	ax  			: axis object for theta alignment data, 
 					  Default value is None,
-	verbose 		: boolean, 
+	verbose 		: boolean for showing alignment process
 					  Default value is False):
         
  	"""
@@ -404,7 +479,8 @@ def align_theta(iterations,
 	rot_lf = LiveFit(rot_model, 'detTh', {'x': 'thMotor'}, 
 					 init_guess, update_every=5)
 	rot_lfp = LiveFitPlot(rot_lf, ax=ax, label='fit',
-						  color = fit_colors[iterations % 7])
+						  color = fit_colors[iterations % 7],
+						  linestyle = linestyles[iterations // 7])
 
 	rot_lp = LivePlot('detTh', x = 'thMotor', ax = ax,
 					  markerfacecolor = 'none',
@@ -420,9 +496,20 @@ def align_theta(iterations,
 					target_delta = targetDelta,
 					backstep = False), [rot_lp, rot_lfp])
 
-	legend = ax.legend()
-	legend.remove()
+	other_data = []
+	leg_coarse = {'label'	: 'Coarse Data',
+			      'shape'	: 'x',
+			      'color'	: 'k',
+			      'size'	: '10'}
+	leg_fine = {'label'	: 'Fine Data',
+			      'shape'	: 'o',
+			      'color'	: 'k',
+			      'size'	: '10'}
+			   
+	other_data = [leg_coarse, leg_fine]
 
+	align_legend(iterations, ax, other_data)
+	
 	if verbose:
 		print('-------------------------------')
 		print('Number of fine measurements: ',len(rot_lp.x_data))
@@ -441,9 +528,7 @@ def align_sample(iterations = 3,
 				theta_kws = None,
 				x_kws = None,
 				SimAlign = False,
-				plotReport = True,
-				tableReport = True,
-				verbose = False):
+				plotReport = True):
 	"""
 	align_sample:
 		-loops over align_x and align_theta until criteria met or fixed number 
@@ -452,22 +537,18 @@ def align_sample(iterations = 3,
 		
 	Parameters
     ----------
-    iterations 		: integer, 
-					  Default value is 3,
-	alignCriteria	: dict, 
+    iterations 		: integer number of iterations to perform [unless alignment
+					  criteria is not None and met]. Default value is 3,
+	alignCriteria	: dict of criteria for ending alignment
 					  Default value is None,
-	theta_kws 		: dict, 
+	theta_kws 		: dict for arguments to be passed to theta-alignment
 					  Default value is None,
-	x_kws 			: dict, 
-					  Default value is None,
-	SimAlign 		: boolean, 
-					  Default value is False,
-	plotReport 		: boolean, 
+	x_kws 			: dict for arguments to be passed to x-alignment
+					  Default value is None
+	SimAlign		: boolean for simulated run (not implemented for full loop
+					  only for individual x, theta loops via the keyword args)
+	plotReport 		: boolean for plotting summary results 
 					  Default value is True,
-	tableReport 	: boolean, 
-					  Default value is True,
-	verbose 		: boolean, 
-					  Default value is False
     
 	"""
 				
@@ -522,7 +603,7 @@ def align_sample(iterations = 3,
 				ln1, = cx1.plot(sequence, x0,  
 								markeredgecolor = 'r',
 								markerfacecolor = 'none', 
-								marker = 's', 
+								marker = '^', 
 					            linestyle='none', label = 'x_offset')
 				ln2, = cx2.plot(sequence, theta0, 
 								markeredgecolor = 'b',
@@ -555,7 +636,9 @@ def align_sample(iterations = 3,
 		print('Iteration #{} summary'.format(iter_count)) 
 
 		if iter_count > 1:
-			x_delta = x0[iter_count-1] - x0[iter_count-2]
+			x_delta = abs(x0[iter_count-1] - x0[iter_count-2])
+			print('Change in x0 between iterations: {0:.4f} mm'.format(x_delta))
+			print('Latest theta (when 2theta = 10 degrees): {0:.4f} '.format(theta0[-1]))
 			if alignCriteria is not None:
 				#if (delta_x < alignCriteria['x']) AND (delta_theta < alignCritera['theta']):
 					#notAligned = False
@@ -563,11 +646,12 @@ def align_sample(iterations = 3,
 			else:	
 				if iter_count >= iterations:
 					notAligned = False
-	
+					
+	print('*****************************************')
 	print('Last x0 = ',x0[-1])
 	print('Final step in x0, x_delta = ', x_delta)
 
-	return fig3, cx1, cx2
+	return
 	
 				
 						   
