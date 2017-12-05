@@ -466,7 +466,7 @@ def align_theta(iterations,
 	#Start BlueSky run engine
 	RE = RunEngine({})
 	
-	#Coarse scan to find beam
+	#Set up coarse scan callback (livePlot) and run scan
 	coarsePlot = LivePlot('detTh', x = 'thMotor', ax = ax, marker = 'x',
 						  color = fit_colors[iterations % 7],
 						  linestyle = 'none', label = 'coarse data')
@@ -489,7 +489,7 @@ def align_theta(iterations,
 	#set up fit model
 	rot_model = lmfit.Model(gaussian)
 		
-	#set up BlueSky fit
+	#set up BlueSky fit, fit plot, and livePlot
 	rot_lf = LiveFit(rot_model, 'detTh', {'x': 'thMotor'}, 
 					 init_guess, update_every=5)
 	rot_lfp = LiveFitPlot(rot_lf, ax=ax, label='fit',
