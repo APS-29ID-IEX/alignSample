@@ -454,7 +454,6 @@ def align_theta(iterations,
 	#Move motors 
 	if not SimAlign:
 		#move xMotor to x0
-		
 		xMotor.move(x0)
 		#move tthMotor to 10 degrees
 		tthMotor.move(10.0)
@@ -536,6 +535,20 @@ def align_theta(iterations,
 			print('Delta of ', simDelta) 
 			print('Error % of ', simError*100.0)
 			print('-------------------------------')
+
+	'''
+	Once "setting" of theta understood, it should be maneuvered peak value, 
+	then "set" to 5 degrees. The function should return the peak value for 
+	plot purposes:
+	'''
+	if not SimAlign:
+		if verbose:
+			print('Resetting theta motor user setpoint')
+		thMotor.move(rot_lf.result.params['x0'].value)
+		thMotor.set_use_switch.put(1)
+		thMotor.user_setpoint.put(5.00)
+		thMotor.set_use_switch.put(0)
+	
 	return rot_lf.result.params['x0'].value
 	
 def align_sample(iterations = 3,
