@@ -307,8 +307,7 @@ def align_x(iterations,
 		#move thMotor to theta_offset or 0 degrees
 		thMotor.move(theta_offset)
 		#move tthMotor to 0 degrees
-		tthMotor.move(0.00)
-		pass
+		tthMotor.move(-32.95) #detector actually at -32.9
 		
 	#run adaptive scan
 	RE(adaptive_scan([detX], 'detX', xMotor, 
@@ -326,7 +325,7 @@ def align_x(iterations,
 	compFit_x0 = comp_lf.result.params['erf_x0'].value
 	compFit_width = comp_lf.result.params['erf_wid'].value
 	
-	x_reduced_max = compFit_x0 + fudge - 0.5*compFit_width
+	x_reduced_max = compFit_x0 + fudge + 0.5*compFit_width
 	
 	xdata = np.asarray(trans_lp.x_data)
 	ydata = np.asarray(trans_lp.y_data)
@@ -393,9 +392,10 @@ def align_theta(iterations,
 				x0 = 0,
 				alignRange = [4.0,6.0],
 				coarseStep = 0.1, 
-				fineRadius = 0.2,
-				stepRange = [0.015, 0.1],	#min thMotor step is 0.01 degrees
-				targetDelta = 0.1, 
+				fineRadius = 0.3,
+				stepRange = [0.015, 0.05],	#min thMotor step is 0.01 degrees
+				targetDelta = 0,
+				targetDeltaDiv = 4, 
 				SimAlign = False,
 				ax = None,
 				verbose = False):
@@ -454,9 +454,9 @@ def align_theta(iterations,
 	#Move motors 
 	if not SimAlign:
 		#move xMotor to x0
-		xMotor.move(x0)
+		xMotor.move(x0) 
 		#move tthMotor to 10 degrees
-		tthMotor.move(10.0)
+		tthMotor.move(-22.95)
 	
 	
 	#set up plot
@@ -479,7 +479,7 @@ def align_theta(iterations,
 		print('-------------------------------')
 		print('Number of coarse measurements: ', coarseSteps)
 		print('Coarse Peak at :', coarse_th0)
-	init_guess = {'A': 1,
+	init_guess = {'A': max(coarsePlot.y_data),
 				  'sigma': lmfit.Parameter('sigma', .03, min=0),
 				  'x0': coarse_th0}
 
@@ -502,6 +502,9 @@ def align_theta(iterations,
 					  markerfacecolor = 'none',
 					  markeredgecolor = fit_colors[iterations % 7],
 					  marker='o', linestyle='none', label='fine data')
+	
+	if targetDelta == 0:
+		targetDelta = max(coarsePlot.y_data)/targetDeltaDiv
 		
 	#run adaptive scan
 	RE(adaptive_scan([detTh], 'detTh',thMotor, 
