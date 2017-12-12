@@ -18,6 +18,7 @@ install_qt_kicker()
 #Start BlueSky
 from bluesky.plans import adaptive_scan, scan
 from bluesky.callbacks import LiveFit, LivePlot, LiveFitPlot, LiveTable
+from bluesky.preprocessors import subs_decorator
 from bluesky import RunEngine
 from ophyd.signal import EpicsSignalRO, EpicsSignal
 from ophyd.epics_motor import EpicsMotor
@@ -30,6 +31,19 @@ import lmfit
 import numpy as np
 import scipy
 import math 
+
+fit_colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
+linestyles = ['-', '--', '-.', ':']
+
+def_xAlignRange = [-1.00, 2.00]
+def_xStepRange = [0.0015, 0.1]
+def_xTargetDelta = 0.0025
+def_fudge = 0.75
+def_thAlignRange = [4.0,6.0]
+def_thCoarseStep = 0.1 
+def_thFineRadius = 0.2 
+def_thStepRange = [0.015, 0.1]	#min thMotor step is 0.01 degrees
+def_thTargetDelta = 0.1
 
 # Change color of each axis
 def color_y_axis(ax, color):
@@ -46,8 +60,44 @@ def color_y_axis(ax, color):
         t.set_color(color)
     return None
 
-fit_colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-linestyles = ['-', '--', '-.', ':']
+def align_legend(iteration, ax, other = None):
+	"""
+	Replaces messy legends produced by lmfit
+	
+	Parameters
+	----------
+	iteration	: integer, iteration of alignment loop
+	ax			: axis object whose legend is being repaced
+	other		: list of dicts for other items in legend containing
+					label	:	label to use in legend
+					shape	:	shape to use in legend entry
+					color	:   color of legend entry
+					size	:   size of legend entry symbol
+					 
+	"""
+	
+	leg = ax.legend()
+	leg.remove()
+	
+	iterHandles = []
+	for i in range(iteration):
+		iterHandles.append(mpatches.Patch(color = fit_colors[i+1 % 7], 
+									label = 'Iteration {} - Fit'.format(i+1)))
+		
+	if other is not None:
+		for j in other:
+			legline = mlines.Line2D([], [], markeredgecolor=j['color'],
+							markerfacecolor = 'none',
+							marker=j['shape'], markersize=j['size'], 
+							label=j['label'], linestyle = 'none')
+			iterHandles.append(legline)
+			
+	ax.legend(handles=iterHandles, loc = 0)
+
+
+
+	return
+
 
 def gaussian(x, A, sigma, x0):
 	"""
@@ -170,43 +220,280 @@ class SynErfGauss(SynSignal):
 
         super().__init__(func=func, name=name, **kwargs)
 
-def align_legend(iteration, ax, other = None):
-	"""
-	Replaces messy legends produced by lmfit
+def alignScan(iterations = 3, alignCriteria = None, theta_kws = None, 
+				x_kws = None, SimAlign = False, plotReport = True, bump = True,
+				verbose = False):
+
+	if x_kws is None:
+		x_kws = {}
+	if theta_kws is None:
+		theta_kws = {}
+
+	try:
+		thAlignRange = theta_kws['alignRange'] 
+	except:
+		thAlignRange = def_thAlignRange 
 	
-	Parameters
-	----------
-	iteration	: integer, iteration of alignment loop
-	ax			: axis object whose legend is being repaced
-	other		: list of dicts for other items in legend containing
-					label	:	label to use in legend
-					shape	:	shape to use in legend entry
-					color	:   color of legend entry
-					size	:   size of legend entry symbol
-					 
-	"""
-	
-	leg = ax.legend()
-	leg.remove()
-	
-	iterHandles = []
-	for i in range(iteration):
-		iterHandles.append(mpatches.Patch(color = fit_colors[i+1 % 7], 
-									label = 'Iteration {} - Fit'.format(i+1)))
-		
-	if other is not None:
-		for j in other:
-			legline = mlines.Line2D([], [], markeredgecolor=j['color'],
-							markerfacecolor = 'none',
-							marker=j['shape'], markersize=j['size'], 
-							label=j['label'], linestyle = 'none')
-			iterHandles.append(legline)
+	# Define signals
+	if not SimAlign:
+		#set signals
+		xMotor = EpicsMotor('29idd:m1', name = 'xMotor')
+		thMotor = EpicsMotor('29idd:m7', name = 'thMotor')
+		tthMotor = EpicsMotor('29idHydra:m1', name = 'tthMotor')
+		detTh =  EpicsSignalRO('29idd:ca4:read', name = 'detTh')
+		detX =  EpicsSignalRO('29idd:ca4:read', name = 'detX')
+	else:
+		#set simulated signals
+		xMotor = SynAxis(name='xMotor')
+		simX0 = np.random.random()-0.5
+		thMotor = SynAxis(name='thMotor')
+		simCenter = (thAlignRange[1]-thAlignRange[0])*np.random.random() + \
+					thAlignRange[0]
+		detTh = SynGauss('detTh',thMotor, 'thMotor', 
+						   center=simCenter, Imax=1, sigma=.03, 
+						   noise='uniform', noise_multiplier=0.05)
+		if bump:
+			detX = SynErfGauss('detX', xMotor, 'xMotor', 
+						  Imax=0.024, wid=0.20, x0 = simX0,
+						  noise='uniform', noise_multiplier=0.0005)
+		else:
+			detX = SynErf('detX', xMotor, 'xMotor', 
+						  Imax=0.024, wid=0.20, x0 = simX0,
+						  noise='uniform', noise_multiplier=0.0005)
+		if verbose:
+			print('-------------------------------')
+			print('Simulated 1/2 max at x = ', simX0)
+			print('Simulated center at theta = ',simCenter)
+			print('-------------------------------')
 			
-	ax.legend(handles=iterHandles, loc = 0)
+	# Setup plots
+	fig1, xax = plt.subplots()
+	fig2, thetax = plt.subplots()
+	if plotReport:
+		fig3, ax1 = plt.subplots()
+		fig3.suptitle('Alignment summary') 
+		ax2 = ax1.twinx()
+	
+	# Define callbacks for x alignment and fits
+	xFitModel = lmfit.Model(erfx, prefix="erf_") + \
+				lmfit.Model(gaussian, prefix='gau_') 
+	xFitGuess = {'erf_low': 0,
+				  'erf_high': 0.03,
+				  'erf_wid': lmfit.Parameter('erf_wid', value = 0.4, min=0),
+				  'erf_x0': -0.1,
+				  'gau_A': 0.01,
+				  'gau_sigma': lmfit.Parameter('gau_sigma', value = .1, min=0),
+				  'gau_x0': 1.0}
+	xLiveFit = LiveFit(xFitModel, 'detX', {'x': 'xMotor'}, 
+						xFitGuess, update_every=5)
+	xLivePlot = LivePlot('detX',x='xMotor', ax=xax, marker='^',
+						linestyle='none', 
+						label = 'Iteration {}'.format(iterations),
+						markerfacecolor = 'none', 
+						markeredgecolor = fit_colors[iterations % 7])
+	
+	# Define callbacks for coarse theta alignment
+	coarseThetaPlot = LivePlot('detTh', x = 'thMotor', ax = thetax, marker = 'x',
+								color = fit_colors[iterations % 7],
+								linestyle = 'none', label = 'coarse data')
 
+	# Define callback for fine theta alignment plot
+	fineThetaPlot = LivePlot('detTh', x = 'thMotor', ax = thetax,
+							 markerfacecolor = 'none',
+							 markeredgecolor = fit_colors[iterations % 7],
+							 marker='o', linestyle='none', label='fine data')
+	
+	# Define inner scans
+	@subs_decorator([xLivePlot, xLiveFit])
+	def xScan(iterations, alignRange = def_xAlignRange,
+			  stepRange = def_xStepRange, targetDelta = def_xTargetDelta,
+			  fudge = def_fudge, verbose = False):
+			
+		#Move motors - th and tth both to 0 degrees
+		if not SimAlign:
+			if verbose:
+				print('Moving th and tth motors to 0.00')
+			thMotor.move(0.00)
+			tthMotor.move(0.00)	  
+				  
+		yield from adaptive_scan([detX], 'detX', xMotor, start = alignRange[0],
+					stop = alignRange[1], min_step = stepRange[0],  
+					max_step = stepRange[1], target_delta = targetDelta,
+					backstep = True)
+		
+		
+	@subs_decorator(coarseThetaPlot)
+	def coarseScan(det, motor, alignRange):
+		coarseSteps = math.floor((alignRange[1]-alignRange[0])/coarseStep)
+		yield from scan(det, motor, alignRange[0], alignRange[1], coarseSteps)
+		
+	coarse_th0 = coarseThetaPlot.x_data[coarseThetaPlot.y_data.index(max(coarsePlot.y_data))]
+	fineThetaModel = lmfit.Model(gaussian)
+	fineThetaInitGuess = {'A': 1,
+				  'sigma': lmfit.Parameter('sigma', .03, min=0),
+				  'x0': coarse_th0}
+	fineThetaLiveFit = LiveFit(fineThetaModel, 'detTh', {'x': 'thMotor'}, 
+							   fineThetaInitGuess, update_every=5)
+	fineThetaLiveFitPlot = LiveFitPlot(fineThetaLiveFit, ax= thetax, label='fit',
+									   color = fit_colors[iterations % 7],
+									   linestyle = linestyles[iterations // 7])
 
+	@subs_decorator([fineThetaPlot, fineThetaFitPlot])
+	def fineScan(det, det_name, motor, alignRange, alignSteps,
+				 target_delta, backstep = False):
+		#set alignRange to use th0 +/- 0.1 degrees
+		yield from adaptive_scan(det, det_name, motor, backstep, start = fineRange[0], 
+						         stop = fineRange[1], min_step = stepRange[0],  
+								 max_step = stepRange[1],  
+								 target_delta = targetDelta)
+		
+	# Define intermediary scans
+	def thetaScan(iterations, x0 = 0, alignRange = def_thAlignRange, 
+				coarseStep = def_thCoarseStep, fineRadius = def_thFineRadius, 
+				stepRange = def_thStepRange,	
+				targetDelta = def_thTargetDelta):
 
-	return
+		#Move motors: x to x0, tth to 10 degrees
+		if not SimAlign:
+			xMotor.move(x0)
+			tthMotor.move(10.0)
+		
+		yield from coarseScan([detTh],thMotor, alignRange)
+		thMotor.move(alignRange[0])
+		fineRange = [coarse_th0 - fineRadius, coarse_th0 + fineRadius]
+		yield from fineScan([detTh], 'detTh', thMotor, fineRange, stepRange, 
+							targetDelta)
+		
+	# Setup full scan
+	notAligned = True
+	iter_count = 0
+	sequence = []
+
+	x0 = []
+	theta0 = []
+	
+	while notAligned:
+		iter_count += 1
+		sequence.append(iter_count)
+		yield from xScan(iter_count, verbose = False, **x_kws) 
+
+		#Reduce data
+		xLiveFit_x0 = xLiveFit.result.params['erf_x0'].value
+		xLiveFit_width = xLiveFit.result.params['erf_wid'].value
+		
+		x_reduced_max = xLiveFit_x0 + fudge - 0.5*xLiveFit_width
+		
+		xdata = np.asarray(xLivePlot.x_data)
+		ydata = np.asarray(xLivePlot.y_data)
+		ix = np.where(xdata < x_reduced_max)
+		
+		x_reduced = xdata[ix]
+		y_reduced = ydata[ix]
+			
+		#fit reduced data, get center and width
+		red_model = lmfit.Model(erfx, missing = 'drop')
+		red_guess = {'low': min(y_reduced),
+					 'high': max(y_reduced),
+					 'wid': lmfit.Parameter('wid', value = xLiveFit_width, min=0),
+					 'x0': xLiveFit_x0}
+			
+		params = red_model.make_params(low = min(y_reduced), high = max(y_reduced), 
+				                       wid = xLiveFit_width, x0 = xLiveFit_x0)
+		
+		redFit = red_model.fit(y_reduced, params, x = x_reduced)
+		x0.append(redFit.result.params['x0'].value)
+		redFit_width = redFit.result.params['wid'].value
+	
+		#plot new fit
+		redFit.plot_fit(ax = xax, data_kws = {'visible':False}, 
+						fit_kws={'color': fit_colors[iterations % 7], 
+						'linestyle' : linestyles[iterations // 7]},
+						init_kws={'visible':False},
+						xlabel = 'xMotor', ylabel = 'detX')
+						
+		if verbose:
+			print('-------------------------------')
+			print('Number of measurements: ',len(xLivePlot.x_data))	
+			print('-------------------------------')
+			print('Composite Model results:')
+			print('Half-maximum at x0 = ',"{0:.5f}".format(compFit_x0))
+			print('Width of eft = {0:.5f}'.format(compFit_width))
+			if SimAlign:
+				compDelta = abs(compFit_x0 - simX0)		
+				print('Delta of {0:.1f} um'.format(1000.0*compDelta))
+				print('Delta of {0:.1f} min resolution steps'.format(compDelta/0.0025))
+			print('-------------------------------')
+			print('Re-fit results:')
+			print('Half-maximum at x0 = ',"{0:.5f}".format(redFit_x0))
+			print('Width of eft = {0:.5f}'.format(redFit_width))
+			if SimAlign:
+				redDelta = abs(x0[-1] - simX0)		
+				print('Delta of {0:.1f} um'.format(1000.0*redDelta))
+				print('Delta of {0:.1f} min resolution steps'.format(redDelta/0.0025))
+
+		yield from thetaScan(iter_count, x0[-1], **theta_kws)
+		
+		theta0.append(fineThetaLiveFit.result.params['x0'].value)						
+		if not SimAlign:
+			if verbose:
+				print('Resetting theta motor user setpoint')
+			thMotor.move(theta0[-1])
+			thMotor.set_use_switch.put(1)
+			thMotor.user_setpoint.put(5.00)
+			thMotor.set_use_switch.put(0)
+		
+		if plotReport:
+			if iter_count == 1:
+				ln1, = ax1.plot(sequence, x0,  
+								markeredgecolor = 'r',
+								markerfacecolor = 'none', 
+								marker = '^', 
+					            linestyle='none', label = 'x_offset')
+				ln2, = ax2.plot(sequence, theta0, 
+								markeredgecolor = 'b',
+								markerfacecolor = 'none',
+								marker = 'o', 
+								linestyle='none', label = 'theta_offset')
+			else:
+				ln1.set_data(sequence, redFit_x0)
+				ln2.set_data(sequence, theta0)
+			ax1.set_ylabel('x offset (mm)',color = 'r')
+			ax1.set_xlabel('Iteration')
+			ax2.set_ylabel('theta @ 2theta = 10',color = 'b') 
+			ax1.relim()
+			ax2.relim()
+			ax1.autoscale_view()
+			ax2.autoscale_view()
+			ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
+			color_y_axis(ax1, 'r')
+			color_y_axis(ax2, 'b')
+			lns = [ln1]+[ln2]
+			labs = [l.get_label() for l in lns]
+			fig3.legend(lns, labs)
+		if iter_count > 1:
+			x_delta = abs(x0[iter_count-1] - x0[iter_count-2])
+			print('Change in x0 between iterations: {0:.4f} mm'.format(x_delta))
+			print('Latest theta (when 2theta = 10 degrees): {0:.4f} '.format(theta0[-1]))
+			if alignCriteria is not None:
+				#if (delta_x < alignCriteria['x']) AND (delta_theta < alignCritera['theta']):
+					#notAligned = False
+				pass
+			else:	
+				if iter_count >= iterations:
+					notAligned = False
+					
+	
+def alignSample(iterations = 3, alignCriteria = None, theta_kws = None, 
+				x_kws = None, SimAlign = False, plotReport = True, 
+				verbose = False):
+	
+	RE = RunEngine({})
+	RE(alignScan(iterations, alignCriteria, theta_kws, 
+				x_kws, SimAlign, plotReport, verbose))
+
+	print('*****************************************')
+	print('Last x0 = ',x0[-1])
+	print('Final step in x0, x_delta = ', x_delta)
 
 def align_x(iterations,
 			theta_offset = 0,
@@ -482,8 +769,6 @@ def align_theta(iterations,
 	init_guess = {'A': 1,
 				  'sigma': lmfit.Parameter('sigma', .03, min=0),
 				  'x0': coarse_th0}
-
-	thMotor.move(alignRange[0])
 
 	#set alignRange to use th0 +/- 0.1 degrees
 	fineRange = [coarse_th0 - fineRadius, coarse_th0 + fineRadius]
