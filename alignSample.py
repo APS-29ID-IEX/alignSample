@@ -21,6 +21,7 @@ from bluesky.callbacks import LiveFit, LivePlot, LiveFitPlot, LiveTable
 from bluesky import RunEngine
 from ophyd.signal import EpicsSignalRO, EpicsSignal
 from ophyd.epics_motor import EpicsMotor
+from ophyd import Device, Component as Cpt
 
 #Need for testing/troubleshooting
 from ophyd.sim import SynAxis, SynGauss, SynSignal
@@ -170,6 +171,32 @@ class SynErfGauss(SynSignal):
 
         super().__init__(func=func, name=name, **kwargs)
 
+class CurAmp(Device):
+	ca_value = Cpt(EpicsSignalRO, 'read')
+	# trigger for detector when in it's passive state
+	trig = Cpt(EpicsSignal, 'PROC', trigger_value=1) 
+	ini_state = Cpt(EpicsSignal, 'SCAN')
+
+#	def __init__(self, prefix, *, name = None, read_attrs = None, **kwargs):
+		# before run get current state
+#		self.initial_state = self.ini_state.get() 
+#		super().__init__(self, name = name, **kwargs)
+		
+	def stage(self):
+		# before run get current state
+		self.initial_state = self.ini_state.get() 
+		# put detector into passive state
+		self.ini_state.put(0, wait=True) 
+		super().stage(self)
+
+	def unstage(self):
+		# return detector to pre-run state
+		self.ini_state.put(self.initial_state, wait=True)
+		super().unstage(self)
+	
+
+ca4Det = CurAmp('29idd:ca4:', name = 'ca4det', read_attrs = ['ca_value'])
+
 def align_legend(iteration, ax, other = None):
 	"""
 	Replaces messy legends produced by lmfit
@@ -256,7 +283,8 @@ def align_x(iterations,
 		xMotor = EpicsMotor('29idd:m1', name = 'xMotor')
 		thMotor = EpicsMotor('29idd:m7', name = 'thMotor')
 		tthMotor = EpicsMotor('29idHydra:m1', name = 'tthMotor')
-		detX =  EpicsSignalRO('29idd:ca4:read', name = 'detX')
+#		detX =  EpicsSignalRO('29idd:ca4:read', name = 'detX')
+		detX = ca4Det
 	else:
 		#set simulated signals
 		xMotor = SynAxis(name='xMotor')
@@ -437,8 +465,8 @@ def align_theta(iterations,
 		xMotor = EpicsMotor('29idd:m1', name = 'xMotor')
 		thMotor = EpicsMotor('29idd:m7', name = 'thMotor')
 		tthMotor = EpicsMotor('29idHydra:m1', name = 'tthMotor')
-		detTh =  EpicsSignalRO('29idd:ca4:read', name = 'detTh')
-
+#		detTh =  EpicsSignalRO('29idd:ca4:read', name = 'detTh')
+		detTh = ca4Det
 	else:
 		#set simulated signals
 		thMotor = SynAxis(name='thMotor')
@@ -550,9 +578,7 @@ def align_theta(iterations,
 		if verbose:
 			print('Resetting theta motor user setpoint')
 		thMotor.move(rot_lf.result.params['x0'].value)
-		thMotor.set_use_switch.put(1)
-		thMotor.user_setpoint.put(5.00)
-		thMotor.set_use_switch.put(0)
+		thMotor.set_current_position(5.00)
 	
 	return rot_lf.result.params['x0'].value
 	
