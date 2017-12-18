@@ -251,8 +251,9 @@ class SynErfGauss(SynSignal):
 class CurAmp(Device):
 	ca_value = Cpt(EpicsSignalRO, 'read')
 	# trigger for detector when in it's passive state
-	trig = Cpt(EpicsSignal, 'PROC', trigger_value=1) 
-	ini_state = Cpt(EpicsSignal, 'SCAN')
+	trig = Cpt(EpicsSignal, 'read.PROC', trigger_value=1) 
+	det_state = Cpt(EpicsSignal, 'read.SCAN')
+	initial_state = 0
 
 #	def __init__(self, prefix, *, name = None, read_attrs = None, **kwargs):
 		# before run get current state
@@ -261,15 +262,15 @@ class CurAmp(Device):
 		
 	def stage(self):
 		# before run get current state
-		self.initial_state = self.ini_state.get() 
+		self.initial_state = self.det_state.get() 
 		# put detector into passive state
-		self.ini_state.put(0, wait=True) 
-		super().stage(self)
+		self.det_state.put(0, wait=True) 
+		super().stage()
 
 	def unstage(self):
 		# return detector to pre-run state
-		self.ini_state.put(self.initial_state, wait=True)
-		super().unstage(self)
+		self.det_state.put(self.initial_state, wait=True)
+		super().unstage()
 
 		
 def alignRSXS(iterations = 3, alignCriteria = None, theta_kws = None, 
@@ -299,7 +300,7 @@ def alignRSXS(iterations = 3, alignCriteria = None, theta_kws = None,
 	except:
 		xAlignRange = def_xAlignRange 
 	
-	detX_name = 'ca4det'
+	detX_name = 'ca4det_ca_value'
 	detTh_name = detX_name 
 	mX_name = 'motorX'
 	mTh_name = 'motorTh'
@@ -347,25 +348,33 @@ def alignRSXS(iterations = 3, alignCriteria = None, theta_kws = None,
 				 iterations = iterations, alignCriteria = alignCriteria, 
 				 theta_kws = theta_kws, x_kws = x_kws, 
 				 sumPlot = fig3, sumAxes = [cx1, cx2], xPlot = ax, thPlot = bx,
-				 SimAlign = SimAlign))
+				 SimAlign = SimAlign, verbose = verbose))
 				 
 				 
 def multiScan(detX, detX_name, detTh, detTh_name, 
 			  motorX, mX_name, motorTh, mTh_name, motorTTh, mTTh_name, 
 			  iterations = 1, alignCriteria = {}, theta_kws = None, 
 			  x_kws = None, SimAlign = False, xPlot = [], thPlot = [],
-			  sumPlot = None, sumAxes = None):
+			  sumPlot = None, sumAxes = None, verbose = False):
 	"""
 	
-	"""    
+	"""
+	if not SimAlign:
+		motorTh.move(0)
+		motorTTh.move(-32.945)
+	    
 	for i in range(iterations):
 		asd.sequence = np.arange(i+1)+1
-		yield from xScanAndCenter(i+1, [detX], detX_name, 
+		yield from xScanAndCenter(i+1, detX, detX_name, 
 								  motorX, mX_name, plotter = xPlot,
-								  SimAlign = SimAlign, **x_kws)
-		yield from thetaScanAndCenter(i+1, [detTh], detTh_name, 
-									  motorTh, mTh_name, plotter = thPlot,
-									  SimAlign = SimAlign, **theta_kws)
+								  SimAlign = SimAlign, verbose = verbose,
+								  **x_kws)
+		yield from thetaScanAndCenter(i+1, detTh, detTh_name, 
+									  motorTh, mTh_name, 
+									  motorTTh, mTTh_name,
+									  plotter = thPlot,
+									  SimAlign = SimAlign, verbose = verbose,
+									   **theta_kws)
 				
 		if sumPlot is not None:
 			if i == 0:
@@ -390,7 +399,7 @@ def multiScan(detX, detX_name, detTh, detTh_name,
 def xScanAndCenter(iteration, detector, det_name, motor, motor_name, 
 				   alignRange = [-1, 2], stepRange = [0.01, 0.10], 
 				   targetDelta = def_xTargetDelta, plotter = [],
-				   SimAlign = False, fudge = def_fudge):
+				   SimAlign = False, fudge = def_fudge, verbose = False):
 	"""
 	
 	"""
@@ -419,10 +428,17 @@ def xScanAndCenter(iteration, detector, det_name, motor, motor_name,
 				  'gau_x0': 1.0}
 	xLiveFit = LiveFit(comp_model, det_name, {'x': motor_name}, comp_guess, 
 					   update_every=5)
+	
+	lt = LiveTable([detector, motor])
+	
+	if verbose:
+		cbs = [scanPlot, xLiveFit, lt]
+	else:
+		cbs = [scanPlot, xLiveFit]
 				
-	@subs_decorator([scanPlot, xLiveFit])
+	@subs_decorator(cbs)
 	def preFitScan(detectors, motor, alignRange, stepRange, targetDelta):
-		yield from adaptive_scan(detectors, det_name, motor, 
+		yield from adaptive_scan([detectors], det_name, motor, 
 								 start = alignRange[0], stop = alignRange[1], 
 								 min_step = stepRange[0], 
 								 max_step = stepRange[1], 
@@ -452,6 +468,12 @@ def xScanAndCenter(iteration, detector, det_name, motor, motor_name,
 	cleanLegend(iteration, xAx, other_data)
 	
 	asd.x0.append(new_x0)
+	
+	if not SimAlign:
+		if (asd.x0[-1] <= min(alignRange) or asd.x0[-1] >= max(alignRange)):
+			print("Peak estimated to be outside of alignment range")
+		else:
+			motor.move(asd.x0[-1])
 
 
 def fitAndPlotBumplessData(y, x, x0, width, fudge = 0.5, ax = [], color = 'r',
@@ -461,7 +483,6 @@ def fitAndPlotBumplessData(y, x, x0, width, fudge = 0.5, ax = [], color = 'r',
 	"""
 
 	x_reduced_max = x0 + fudge + 0.5*width
-	print(x0, width, fudge, x_reduced_max)
 	
 	xdata = np.asarray(x)
 	ydata = np.asarray(y)
@@ -495,13 +516,21 @@ def fitAndPlotBumplessData(y, x, x0, width, fudge = 0.5, ax = [], color = 'r',
 	return redFit_x0
 
 
-def thetaScanAndCenter(iteration, detector, detector_name, motor, motor_name,
+def thetaScanAndCenter(iteration, detector, detector_name, 
+					   motor, motor_name, motor2, motor2_name,
 					   alignRange = [4, 6], coarsePTS=10, 
 					   fineRadius=0.3, fStepRange = [0.015, 0.075], 
-					   targetDeltaFactor = 10, plotter = [], SimAlign = False):
+					   targetDeltaFactor = 10, plotter = [], 
+					   SimAlign = False, verbose = False):
 	"""
+	detector offset angle PV:
+	29idd:userCalcOut2.VAL
 	
 	"""
+	if not SimAlign:
+		motor2.move(-22.945)
+		motor.move(alignRange[0])
+	    
 	if plotter is None:
 		figTh, thAx = plt.subplots()
 	else:
@@ -515,9 +544,16 @@ def thetaScanAndCenter(iteration, detector, detector_name, motor, motor_name,
 						  label = '{} - coarse'.format(iteration))
 	coarsePeak = PeakStats(motor_name,detector_name)
 
-	@subs_decorator([coarsePlot,coarsePeak])
+	lt = LiveTable([detector, motor])
+	
+	if verbose: 
+		coarse_cbs = [coarsePlot,coarsePeak, lt]
+	else:
+		coarse_cbs = [coarsePlot,coarsePeak]
+		
+	@subs_decorator(coarse_cbs)
 	def coarseScan(detector, motor, cRange, pts = 10):
-		yield from scan(detector, motor, cRange[0], cRange[1], num = pts)
+		yield from scan([detector], motor, cRange[0], cRange[1], num = pts)
 		
 	yield from coarseScan(detector, motor, alignRange, pts = coarsePTS)
 
@@ -541,11 +577,16 @@ def thetaScanAndCenter(iteration, detector, detector_name, motor, motor_name,
 	   
 	if not SimAlign:
 		if coarsePeak.max[0] > alignRange[1]-1:
-			th.Motor.move(4.00)
+			motor.move(4.00)
 	
-	@subs_decorator([finePlot, fineThetaLiveFitPlot])
+	if verbose:
+		fine_cbs = [finePlot, fineThetaLiveFitPlot, lt]
+	else:
+		fine_cbs = [finePlot, fineThetaLiveFitPlot]
+		
+	@subs_decorator(fine_cbs)
 	def fineScan(detectors, motor, fRange, pts = 50):
-		yield from adaptive_scan(detector, detector_name, motor, 
+		yield from adaptive_scan([detector], detector_name, motor, 
 								 start = fRange[0], stop = fRange[1], 
 								 min_step = fStepRange[0], 
 								 max_step = fStepRange[1], 
@@ -557,7 +598,12 @@ def thetaScanAndCenter(iteration, detector, detector_name, motor, motor_name,
 	asd.theta5.append(fineThetaLiveFit.result.params['x0'].value)
 	
 	if not SimAlign:
-		thMotor.move(theta5[-1])
-		thMotor.set_current_position(5.00)
+		if (asd.theta5[-1] <= min(alignRange) or asd.theta5[-1] >= max(alignRange)):
+			print("Peak estimated to be outside of alignment range")
+		else:
+			motor.move(asd.theta5[-1])
+			motor.set_current_position(5.00)
+		motor.move(0)
+		motor2.move(-32.945)
 	
 	return

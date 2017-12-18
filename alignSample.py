@@ -174,8 +174,9 @@ class SynErfGauss(SynSignal):
 class CurAmp(Device):
 	ca_value = Cpt(EpicsSignalRO, 'read')
 	# trigger for detector when in it's passive state
-	trig = Cpt(EpicsSignal, 'PROC', trigger_value=1) 
-	ini_state = Cpt(EpicsSignal, 'SCAN')
+	trig = Cpt(EpicsSignal, 'read.PROC', trigger_value=1) 
+	det_state = Cpt(EpicsSignal, 'read.SCAN')
+	initial_state = 0
 
 #	def __init__(self, prefix, *, name = None, read_attrs = None, **kwargs):
 		# before run get current state
@@ -184,15 +185,15 @@ class CurAmp(Device):
 		
 	def stage(self):
 		# before run get current state
-		self.initial_state = self.ini_state.get() 
+		self.initial_state = self.det_state.get() 
 		# put detector into passive state
-		self.ini_state.put(0, wait=True) 
-		super().stage(self)
+		self.det_state.put(0, wait=True) 
+		super().stage()
 
 	def unstage(self):
 		# return detector to pre-run state
-		self.ini_state.put(self.initial_state, wait=True)
-		super().unstage(self)
+		self.det_state.put(self.initial_state, wait=True)
+		super().unstage()
 	
 
 ca4Det = CurAmp('29idd:ca4:', name = 'ca4det', read_attrs = ['ca_value'])
@@ -293,11 +294,11 @@ def align_x(iterations,
 			print('-------------------------------')
 			print('Simulated 1/2 max at ', simX0)
 		if bump:
-			detX = SynErfGauss('detX', xMotor, 'xMotor', 
+			detX = SynErfGauss('ca4det', xMotor, 'xMotor', 
 						  Imax=0.024, wid=0.20, x0 = simX0,
 						  noise='uniform', noise_multiplier=0.0005)
 		else:
-			detX = SynErf('detX', xMotor, 'xMotor', 
+			detX = SynErf('ca4det', xMotor, 'xMotor', 
 						  Imax=0.024, wid=0.20, x0 = simX0,
 						  noise='uniform', noise_multiplier=0.0005)
 	
@@ -319,12 +320,12 @@ def align_x(iterations,
 				  'gau_A': 0.01,
 				  'gau_sigma': lmfit.Parameter('gau_sigma', value = .1, min=0),
 				  'gau_x0': 1.0}
-	comp_lf = LiveFit(comp_model, 'detX', {'x': 'xMotor'}, 
+	comp_lf = LiveFit(comp_model, 'ca4det_ca_value', {'x': 'xMotor'}, 
 						comp_guess, update_every=5)
 
-#	comp_lfp = LiveFitPlot(comp_lf, ax=ax, color='g', label = 'composite fit')
+	comp_lfp = LiveFitPlot(comp_lf, ax=ax, color='g', label = 'composite fit')
 
-	trans_lp = LivePlot('detX',x='xMotor', ax=ax, marker='^',
+	trans_lp = LivePlot('ca4det_ca_value',x='xMotor', ax=ax, marker='^',
 						linestyle='none', 
 						label = 'Iteration {}'.format(iterations),
 						markerfacecolor = 'none', 
@@ -336,15 +337,22 @@ def align_x(iterations,
 		thMotor.move(theta_offset)
 		#move tthMotor to 0 degrees
 		tthMotor.move(-32.95) #detector actually at -32.9
+	
+	xTable = LiveTable([detX, xMotor])
+	
+	if verbose:
+		cbs = [xTable, trans_lp, comp_lf, comp_lfp]
+	else:
+		cbs = [trans_lp, comp_lf]
 		
 	#run adaptive scan
-	RE(adaptive_scan([detX], 'detX', xMotor, 
+	RE(adaptive_scan([detX], 'ca4det_ca_value', xMotor, 
 					start = alignRange[0],
 					stop = alignRange[1], 
 					min_step = stepRange[0],  
 					max_step = stepRange[1], 
 					target_delta = targetDelta,
-					backstep = True), [trans_lp, comp_lf]) #comp_lfp])
+					backstep = True), cbs)
 					
 	#Use composite fit data and re-fit using interval of alignRange[0] to 
 	#compFit_x0+(1+fudge)*compFit_wid
@@ -495,7 +503,7 @@ def align_theta(iterations,
 	RE = RunEngine({})
 	
 	#Set up coarse scan callback (livePlot) and run scan
-	coarsePlot = LivePlot('detTh', x = 'thMotor', ax = ax, marker = 'x',
+	coarsePlot = LivePlot('ca4det_ca_value', x = 'thMotor', ax = ax, marker = 'x',
 						  color = fit_colors[iterations % 7],
 						  linestyle = 'none', label = 'coarse data')
 	coarseSteps = math.floor((alignRange[1]-alignRange[0])/coarseStep)
@@ -511,7 +519,8 @@ def align_theta(iterations,
 				  'sigma': lmfit.Parameter('sigma', .03, min=0),
 				  'x0': coarse_th0}
 
-	thMotor.move(alignRange[0])
+	if not SimAlign:
+		thMotor.move(alignRange[0])
 
 	#set alignRange to use th0 +/- 0.1 degrees
 	fineRange = [coarse_th0 - fineRadius, coarse_th0 + fineRadius]
@@ -520,29 +529,35 @@ def align_theta(iterations,
 	rot_model = lmfit.Model(gaussian)
 		
 	#set up BlueSky fit, fit plot, and livePlot
-	rot_lf = LiveFit(rot_model, 'detTh', {'x': 'thMotor'}, 
+	rot_lf = LiveFit(rot_model, 'ca4det_ca_value', {'x': 'thMotor'}, 
 					 init_guess, update_every=5)
 	rot_lfp = LiveFitPlot(rot_lf, ax=ax, label='fit',
 						  color = fit_colors[iterations % 7],
 						  linestyle = linestyles[iterations // 7])
 
-	rot_lp = LivePlot('detTh', x = 'thMotor', ax = ax,
+	rot_lp = LivePlot('ca4det_ca_value', x = 'thMotor', ax = ax,
 					  markerfacecolor = 'none',
 					  markeredgecolor = fit_colors[iterations % 7],
 					  marker='o', linestyle='none', label='fine data')
+	
+	rot_lt = LiveTable([detTh, thMotor])
+	
+	if verbose:
+		cbs = [rot_lp, rot_lfp, rot_lt]
+	else:
+		cbs = [rot_lp, rot_lfp]
 	
 	if targetDelta == 0:
 		targetDelta = max(coarsePlot.y_data)/targetDeltaDiv
 		
 	#run adaptive scan
-	RE(adaptive_scan([detTh], 'detTh',thMotor, 
+	RE(adaptive_scan([detTh], 'ca4det_ca_value',thMotor, 
 					start = fineRange[0],
 					stop = fineRange[1], 
 					min_step = stepRange[0],  
 					max_step = stepRange[1], 
 					target_delta = targetDelta,
-					backstep = False), [rot_lp, rot_lfp])
-
+					backstep = False), cbs)
 	other_data = []
 	leg_coarse = {'label'	: 'Coarse Data',
 			      'shape'	: 'x',
@@ -587,7 +602,8 @@ def align_sample(iterations = 3,
 				theta_kws = None,
 				x_kws = None,
 				SimAlign = False,
-				plotReport = True):
+				plotReport = True,
+				verbose = False):
 	"""
 	align_sample:
 		-loops over align_x and align_theta until criteria met or fixed number 
@@ -648,13 +664,16 @@ def align_sample(iterations = 3,
 		'''
 		if iter_count == 1:  
 			x0.append(align_x(iter_count, theta_offset = 0,
-					  ax = ax, **x_kws))
+					  ax = ax, SimAlign = SimAlign, verbose = verbose, 
+					  **x_kws))
 		else:
 			x0.append(align_x(iter_count, theta_offset = theta0[-1], 
-					  ax = ax, **x_kws))
+					  ax = ax, SimAlign = SimAlign,  verbose = verbose, 
+					  **x_kws))
 
 		theta0.append(align_theta(iter_count, x0 = x0[-1], 
-					  ax = bx, **theta_kws))
+					  ax = bx, SimAlign = SimAlign, verbose = verbose,
+					  **theta_kws))
 		
 		if plotReport:
 		
